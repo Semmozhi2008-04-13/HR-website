@@ -4,8 +4,39 @@ import { apiGet } from '../services/api';
 
 const PAGE_SIZE = 5;
 
+const mock_candidate = [
+  {
+    name: 'Dr. Reena Sen',
+    initials: 'RS',
+    color: "bg-purple-100 text-purple-700",
+    score: 94,
+    exp: "8 Years",
+    expYears: 8, 
+    qual: "Ph.D. (IIT Kanpur)",
+    match: 95,
+    research: "14 Papers",
+    researchCount: 14,
+    department: "CSE",
+    status: "SHORTLISTED"
+  },
+  {
+    name: 'Dr. Liam Chen',
+    initials: 'LC',
+    color: "bg-purple-100 text-purple-700",
+    score: 92,
+    exp: "6 Years",
+    expYears: 6, 
+    qual: "M.Tech (NIT Trichy)",
+    match: 90,
+    research: "12 Papers",
+    researchCount: 12,
+    department: "ECE",
+    status: "REVIEW"
+  }
+];
+
 export default function CandidateContentArea() {
-  const [candidates, setCandidates] = useState([]);
+  const [candidates, setCandidates] = useState(mock_candidate);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [searchParams] = useSearchParams();
