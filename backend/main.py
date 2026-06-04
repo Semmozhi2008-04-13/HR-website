@@ -1,295 +1,371 @@
-from pathlib import Path
-import sqlite3
+from __future__ import annotations
 
-from fastapi import FastAPI, HTTPException, Query
+import datetime
+import re
+from decimal import Decimal
+from typing import Optional
+
+from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncSession
 
-BASE_DIR = Path(__file__).resolve().parent
-DB_PATH = BASE_DIR / "hr_portal.db"
+from backend.database import get_db
+from backend.models import (
+    Candidate,
+    DashboardMetric,
+    DashboardSchedule,
+    DashboardTimeline,
+    Department,
+    EvaluationCandidate,
+    Job,
+    Interview,
+    Offer,
+    SelectionCandidate,
+    parse_salary_to_decimal,
+    seed_initial_data_if_empty,
+    Base,
+)
 
-app = FastAPI(title="CIT HR Portal API")
+app = FastAPI(title="Smart Faculty Recruitment System API")
+
+FRONTEND_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://127.0.0.1:5173", "http://localhost:5173"],
+    allow_origins=FRONTEND_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE"],
     allow_headers=["*"],
 )
 
 
-def connect():
-    connection = sqlite3.connect(DB_PATH)
-    connection.row_factory = sqlite3.Row
-    return connection
+class SelectionDecisionPayload(BaseModel):
+    decision: Optional[str] = Field(default=None)
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("decision")
+    @classmethod
+    def validate_decision(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        allowed = {"Selected", "Rejected"}
+        if v not in allowed:
+            raise ValueError("decision must be 'Selected' or 'Rejected' or null")
+        return v
 
 
-def rows(query, params=()):
-    with connect() as connection:
-        return [dict(row) for row in connection.execute(query, params).fetchall()]
+class ApplicationStatusPayload(BaseModel):
+    status: str
+
+    model_config = ConfigDict(extra="forbid")
 
 
-def execute(query, params=()):
-    with connect() as connection:
-        cursor = connection.execute(query, params)
-        connection.commit()
-        return cursor.rowcount
+class JobCreateInput(BaseModel):
+    jobTitle: str = Field(min_length=1, max_length=200)
+    department: str = Field(min_length=1, max_length=200)
+
+    specialization: Optional[str] = Field(default="", max_length=500)
+    qualifications: Optional[str] = Field(default="", max_length=10_000)
+
+    salary: Optional[str] = Field(default="", max_length=10_000)
+    minExperience: Optional[str] = Field(default="", max_length=200)
+    vacancies: Optional[str] = Field(default="", max_length=50)
+
+    startDate: Optional[str] = Field(default="", max_length=50)
+    endDate: Optional[str] = Field(default="", max_length=50)
+
+    status: str = Field(min_length=1, max_length=30)
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("vacancies")
+    @classmethod
+    def validate_vacancies_gt_0(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        raw = (v or "").strip()
+        if raw == "":
+            return raw
+        try:
+            n = int(raw)
+        except ValueError:
+            raise ValueError("vacancies must be an integer string")
+        if n <= 0:
+            raise ValueError("vacancies must be > 0")
+        return raw
+
+    @field_validator("startDate", "endDate")
+    @classmethod
+    def validate_optional_date(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        raw = (v or "").strip()
+        if raw == "":
+            return ""
+        # accept yyyy-mm-dd
+        datetime.date.fromisoformat(raw)
+        return raw
 
 
-def seed_table(connection, table, columns, values):
-    count = connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-    if count:
-        return
-
-    placeholders = ", ".join(["?"] * len(columns))
-    column_list = ", ".join(columns)
-    connection.executemany(
-        f"INSERT INTO {table} ({column_list}) VALUES ({placeholders})",
-        values,
-    )
-
-
-def init_db():
-    with connect() as connection:
-        connection.executescript(
-            """
-            CREATE TABLE IF NOT EXISTS candidates (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL,
-                initials TEXT NOT NULL,
-                department TEXT NOT NULL,
-                score INTEGER NOT NULL,
-                exp TEXT NOT NULL,
-                expYears INTEGER NOT NULL,
-                qual TEXT NOT NULL,
-                match INTEGER NOT NULL,
-                research TEXT NOT NULL,
-                researchCount INTEGER NOT NULL,
-                status TEXT NOT NULL,
-                color TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS selection_candidates (
-                id INTEGER PRIMARY KEY,
-                name TEXT NOT NULL,
-                initials TEXT NOT NULL,
-                type TEXT NOT NULL,
-                subType TEXT NOT NULL,
-                score INTEGER NOT NULL,
-                decision TEXT
-            );
-
-            CREATE TABLE IF NOT EXISTS evaluation_candidates (
-                id INTEGER PRIMARY KEY,
-                name TEXT NOT NULL,
-                initials TEXT NOT NULL,
-                aiScore TEXT NOT NULL,
-                panelScore TEXT NOT NULL,
-                recommendation TEXT NOT NULL,
-                finalScore INTEGER NOT NULL,
-                status TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS interviews (
-                id INTEGER PRIMARY KEY,
-                name TEXT NOT NULL,
-                initials TEXT NOT NULL,
-                avatarBg TEXT NOT NULL,
-                panel TEXT NOT NULL,
-                dateTime TEXT NOT NULL,
-                venue TEXT NOT NULL,
-                status TEXT NOT NULL,
-                statusStyle TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS dashboard_metrics (
-                id INTEGER PRIMARY KEY,
-                title TEXT NOT NULL,
-                value TEXT NOT NULL,
-                icon TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS dashboard_schedule (
-                id INTEGER PRIMARY KEY,
-                name TEXT NOT NULL,
-                role TEXT NOT NULL,
-                initial TEXT NOT NULL,
-                avatarBg TEXT NOT NULL,
-                status TEXT NOT NULL,
-                statusClass TEXT NOT NULL,
-                action TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS dashboard_timeline (
-                id INTEGER PRIMARY KEY,
-                date TEXT NOT NULL,
-                description TEXT NOT NULL,
-                active INTEGER NOT NULL
-            );
-            """
-        )
-
-        seed_table(connection, "candidates", ["name", "initials", "department", "score", "exp", "expYears", "qual", "match", "research", "researchCount", "status", "color"], [
-            ("Priya Sharma", "PS", "CSE", 95, "4 yrs", 4, "PhD", 90, "4 papers", 4, "SHORTLISTED", "bg-indigo-100 text-indigo-800"),
-            ("Mihona", "M", "IT", 91, "3 yrs", 3, "M.Tech", 90, "2 papers", 2, "SHORTLISTED", "bg-amber-100 text-amber-800"),
-            ("Meena", "ME", "ECE", 87, "1 yr", 1, "M.Tech", 80, "2 papers", 2, "SHORTLISTED", "bg-purple-100 text-purple-800"),
-            ("Kumar", "K", "CSE", 82, "1 yr", 1, "M.Tech", 80, "1 paper", 1, "SHORTLISTED", "bg-blue-100 text-blue-800"),
-            ("Sharma Reeya", "SR", "IT", 79, "0 yrs", 0, "M.Tech", 75, "1 paper", 1, "PENDING", "bg-gray-100 text-gray-800"),
-            ("Arun Nair", "AN", "CSE", 76, "2 yrs", 2, "M.Tech", 72, "3 papers", 3, "PENDING", "bg-cyan-100 text-cyan-800"),
-            ("Latha Menon", "LM", "ECE", 74, "5 yrs", 5, "PhD", 70, "5 papers", 5, "REVIEW", "bg-emerald-100 text-emerald-800"),
-            ("Naveen Raj", "NR", "MECH", 69, "2 yrs", 2, "M.E", 68, "1 paper", 1, "REVIEW", "bg-orange-100 text-orange-800"),
-            ("Divya Suresh", "DS", "CSE", 66, "0 yrs", 0, "M.Tech", 64, "0 papers", 0, "REJECTED", "bg-rose-100 text-rose-800"),
-            ("Rahul Verma", "RV", "IT", 62, "1 yr", 1, "MCA", 61, "0 papers", 0, "REJECTED", "bg-slate-100 text-slate-800"),
-        ])
-
-        seed_table(connection, "selection_candidates", ["id", "name", "initials", "type", "subType", "score", "decision"], [
-            (1, "Dr. Mihona", "MS", "Strong", "Recommended", 90, "Selected"),
-            (2, "Dr. Meena", "MA", "Strong", "Recommended", 87, None),
-            (3, "R. Kumar", "RK", "Strong", "Recommended", 85, None),
-            (4, "Dr. Reena", "RS", "Recommended", "", 77, None),
-            (5, "Dr. Sharma", "SP", "Recommended", "", 78, None),
-            (6, "Dr. Priya", "PK", "Recommended", "", 75, None),
-            (7, "Dr. Latha Menon", "LM", "Strong", "Recommended", 88, "Selected"),
-            (8, "Dr. Arun Nair", "AN", "Recommended", "", 73, None),
-            (9, "Dr. Divya Suresh", "DS", "Not", "Recommended", 61, "Rejected"),
-            (10, "Dr. Naveen Raj", "NR", "Recommended", "", 72, None),
-            (11, "Dr. Rahul Verma", "RV", "Not", "Recommended", 58, None),
-            (12, "Dr. Kavya Iyer", "KI", "Strong", "Recommended", 91, None),
-            (13, "Dr. Sahana Rao", "SR", "Recommended", "", 79, None),
-            (14, "Dr. Omar Khan", "OK", "Not", "Recommended", 55, "Rejected"),
-            (15, "Dr. Akash Balan", "AB", "Strong", "Recommended", 86, None),
-            (16, "Dr. Neha Thomas", "NT", "Recommended", "", 76, None),
-            (17, "Dr. Charan Dev", "CD", "Recommended", "", 74, None),
-            (18, "Dr. Ishita Bose", "IB", "Strong", "Recommended", 89, None),
-        ])
-
-        seed_table(connection, "evaluation_candidates", ["id", "name", "initials", "aiScore", "panelScore", "recommendation", "finalScore", "status"], [
-            (1, "Dr. Reena Sen", "RS", "92 %", "4.7 /5", "Strong Recommended", 90, "Shortlisted"),
-            (2, "Dr. Mihona", "MH", "88 %", "4.3 /5", "Strong Recommended", 90, "Shortlisted"),
-            (3, "Dr. Meena", "MN", "83 %", "4.1 /5", "Strong Recommended", 87, "Shortlisted"),
-            (4, "R. Kumar", "RK", "80 %", "4.0/5", "Strong Recommended", 85, "Shortlisted"),
-            (5, "Dr. Sharma Reeya", "SR", "79 %", "3.8 /5", "Recommended", 78, "Shortlisted"),
-            (6, "Dr. Reena", "RN", "78 %", "4.3 /5", "Recommended", 77, "Shortlisted"),
-            (7, "Dr. priya sharma", "PS", "75%", "4.7 /5", "Recommended", 66, "Shortlisted"),
-            (8, "Dr. Latha Menon", "LM", "82 %", "4.0 /5", "Recommended", 81, "Shortlisted"),
-            (9, "Dr. Arun Nair", "AN", "72 %", "3.6 /5", "Recommended", 72, "On Hold"),
-            (10, "Dr. Divya Suresh", "DS", "68 %", "3.3 /5", "Review Needed", 68, "On Hold"),
-            (11, "Dr. Naveen Raj", "NR", "65 %", "3.1 /5", "Review Needed", 64, "On Hold"),
-            (12, "Dr. Kavya Iyer", "KI", "90 %", "4.5 /5", "Strong Recommended", 89, "Shortlisted"),
-            (13, "Dr. Sahana Rao", "SR", "77 %", "3.9 /5", "Recommended", 76, "Shortlisted"),
-            (14, "Dr. Omar Khan", "OK", "58 %", "2.9 /5", "Not Recommended", 58, "Rejected"),
-            (15, "Dr. Akash Balan", "AB", "84 %", "4.2 /5", "Strong Recommended", 84, "Shortlisted"),
-        ])
-
-        seed_table(connection, "interviews", ["id", "name", "initials", "avatarBg", "panel", "dateTime", "venue", "status", "statusStyle"], [
-            (1, "Dr. Reena Sen", "RS", "bg-[#1a237e] text-[#8690ee]", "Dr. Smith", "May 18, 2026 - 11:30 AM", "Meeting Room - 402", "Shortlisted", "bg-[#eddcff] text-[#5a2a9c]"),
-            (2, "Dr. Liam Chen", "LC", "bg-[#705d00] text-white", "Dr. Rao", "May 18, 2026 - 10:00 AM", "Meeting Room - 302", "Ongoing", "bg-[#e0e0ff] text-[#343d96]"),
-            (3, "Dr. Atkin Barne", "AB", "bg-gray-200 text-gray-700", "Dr. Rama", "May 18, 2026 - 09:00 AM", "Meeting Room - 104", "Completed", "bg-[#ffe170] text-[#221b00]"),
-            (4, "Dr. Sarah Jenkins", "SJ", "bg-emerald-800 text-emerald-100", "Dr. Smith", "May 19, 2026 - 02:00 PM", "Main Seminar Hall", "Ongoing", "bg-[#e0e0ff] text-[#343d96]"),
-            (5, "Dr. Rajesh Kumar", "RK", "bg-cyan-800 text-cyan-100", "Dr. Anand", "May 19, 2026 - 03:30 PM", "Meeting Room - 201", "Ongoing", "bg-[#e0e0ff] text-[#343d96]"),
-            (6, "Dr. Elena Rostova", "ER", "bg-fuchsia-800 text-fuchsia-100", "Dr. Rao", "May 20, 2026 - 09:30 AM", "Meeting Room - 402", "Ongoing", "bg-[#e0e0ff] text-[#343d96]"),
-            (7, "Dr. David Okafor", "DO", "bg-orange-800 text-orange-100", "Dr. Rama", "May 20, 2026 - 11:00 AM", "Meeting Room - 104", "Ongoing", "bg-[#e0e0ff] text-[#343d96]"),
-            (8, "Dr. Yuki Tanaka", "YT", "bg-teal-800 text-teal-100", "Dr. Anand", "May 20, 2026 - 04:00 PM", "Online - Room 2", "Ongoing", "bg-[#e0e0ff] text-[#343d96]"),
-        ])
-
-        seed_table(connection, "dashboard_metrics", ["id", "title", "value", "icon"], [
-            (1, "Total Faculty", "245", "group"),
-            (2, "Vacancies", "20", "business"),
-            (3, "Urgent Hiring", "8", "person_add"),
-            (4, "Applications", "62", "description"),
-            (5, "Interviews", "12", "groups"),
-            (6, "Selections", "5", "auto_awesome"),
-        ])
-        seed_table(connection, "dashboard_schedule", ["id", "name", "role", "initial", "avatarBg", "status", "statusClass", "action"], [
-            (1, "Dr. Atkin Barne", "Professor: CSE", "AT", "bg-orange-100 text-orange-600", "Completed", "bg-green-100 text-green-800", "View Results"),
-            (2, "Dr. Liam Chen", "Associate professor: CSE", "LC", "bg-blue-100 text-blue-600", "Shortlisted", "bg-purple-100 text-purple-800", "Evaluate"),
-            (3, "Dr. Reena Sen", "Assistant professor: CSE", "RS", "bg-purple-100 text-purple-600", "Pending", "bg-gray-100 text-gray-600", "Evaluate"),
-        ])
-        seed_table(connection, "dashboard_timeline", ["id", "date", "description", "active"], [
-            (1, "Today", "4 Interviews Scheduled", 1),
-            (2, "Tuesday, May 19", "Committee Briefing", 0),
-            (3, "Wednesday, May 20", "Final Decision Meeting", 0),
-            (4, "Thursday, May 22", "Review details", 0),
-        ])
-        connection.commit()
+def _parse_date_to_utc_start(date_str: str) -> Optional[datetime.datetime]:
+    if not date_str:
+        return None
+    d = datetime.date.fromisoformat(date_str)
+    return datetime.datetime(d.year, d.month, d.day, tzinfo=datetime.timezone.utc)
 
 
 @app.on_event("startup")
-def startup():
-    init_db()
+async def on_startup() -> None:
+    # Create tables
+    from backend.database import engine, AsyncSessionLocal
 
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
 
-@app.get("/api/health")
-def health():
-    return {"ok": True}
-
-
-# Unifies search bar mapping seamlessly for your React Header
-@app.get("/api/search")
-def search_system(query: str = Query(..., min_length=1)):
-    search_pattern = f"%{query}%"
-    return rows(
-        """
-        SELECT id, name as firstName, '' as lastName, department as email, qual as highestQualification 
-        FROM candidates 
-        WHERE name LIKE ? OR department LIKE ?
-        LIMIT 8
-        """, 
-        (search_pattern, search_pattern)
-    )
-
-
-@app.get("/api/candidates")
-def get_candidates():
-    return rows("SELECT * FROM candidates ORDER BY score DESC")
-
-
-@app.get("/api/selection")
-def get_selection():
-    return rows("SELECT * FROM selection_candidates ORDER BY score DESC")
-
-
-@app.patch("/api/selection/{candidate_id}")
-def update_selection(candidate_id: int, payload: dict):
-    decision = payload.get("decision")
-    if decision not in {"Selected", "Rejected", None}:
-        raise HTTPException(status_code=400, detail="Invalid decision")
-    updated = execute("UPDATE selection_candidates SET decision = ? WHERE id = ?", (decision, candidate_id))
-    if not updated:
-        raise HTTPException(status_code=404, detail="Candidate not found")
-    return {"ok": True}
-
-
-@app.get("/api/evaluation")
-def get_evaluation():
-    return rows("SELECT * FROM evaluation_candidates ORDER BY finalScore DESC")
-
-
-@app.delete("/api/evaluation/{candidate_id}")
-def delete_evaluation(candidate_id: int):
-    deleted = execute("DELETE FROM evaluation_candidates WHERE id = ?", (candidate_id,))
-    if not deleted:
-        raise HTTPException(status_code=404, detail="Candidate not found")
-    return {"ok": True}
-
-
-@app.get("/api/interviews")
-def get_interviews():
-    return rows("SELECT * FROM interviews ORDER BY id")
-
-
-@app.delete("/api/interviews/{interview_id}")
-def delete_interview(interview_id: int):
-    deleted = execute("DELETE FROM interviews WHERE id = ?", (interview_id,))
-    if not deleted:
-        raise HTTPException(status_code=404, detail="Interview not found")
-    return {"ok": True}
+    # Seed demo rows if empty
+    await seed_initial_data_if_empty(AsyncSessionLocal)
 
 
 @app.get("/api/dashboard")
-def get_dashboard():
-    return {
-        "metrics": rows("SELECT * FROM dashboard_metrics ORDER BY id"),
-        "scheduleRows": rows("SELECT * FROM dashboard_schedule ORDER BY id"),
-        "timelineEvents": rows("SELECT id, date, description, active FROM dashboard_timeline ORDER BY id"),
-    }
+async def get_dashboard_data(session: AsyncSession = Depends(get_db)):
+    try:
+        metrics = (await session.execute(select(DashboardMetric).order_by(DashboardMetric.id))).scalars().all()
+        schedule = (await session.execute(select(DashboardSchedule).order_by(DashboardSchedule.id))).scalars().all()
+        timeline = (await session.execute(select(DashboardTimeline).order_by(DashboardTimeline.id))).scalars().all()
+
+        return {
+            "metrics": [
+                {"id": m.id, "title": m.title, "value": m.value, "icon": m.icon}
+                for m in metrics
+            ],
+            "scheduleRows": [
+                {
+                    "id": r.id,
+                    "name": r.name,
+                    "role": r.role,
+                    "skills": r.skills,
+                    "initial": r.initial,
+                    "avatarBg": r.avatar_bg,
+                    "status": r.status,
+                    "statusClass": r.status_class,
+                    "action": r.action,
+                }
+                for r in schedule
+            ],
+            "timelineEvents": [
+                {"id": e.id, "date": e.date, "description": e.description, "active": bool(e.active)}
+                for e in timeline
+            ],
+        }
+    except SQLAlchemyError as e:
+        raise HTTPException(status_code=503, detail=f"Database error: {str(e)}")
+
+
+@app.get("/api/jobs")
+async def get_recruitment_jobs(session: AsyncSession = Depends(get_db)):
+    try:
+        jobs = (await session.execute(select(Job).order_by(Job.id.desc()))).scalars().all()
+        return [
+            {
+                "id": j.id,
+                "title": j.title,
+                "designation": j.designation,
+                "department": {"name": j.department.name},
+                "_count": {"applications": j.applications_count},
+            }
+            for j in jobs
+        ]
+    except SQLAlchemyError as e:
+        raise HTTPException(status_code=503, detail=f"Database error: {str(e)}")
+
+
+@app.post("/api/jobs", status_code=status.HTTP_201_CREATED)
+async def create_new_recruitment_job(payload: JobCreateInput, session: AsyncSession = Depends(get_db)):
+    try:
+        vacancies_raw = (payload.vacancies or "").strip()
+        vacancies_n = int(vacancies_raw) if vacancies_raw else 1
+        if vacancies_n <= 0:
+            raise HTTPException(status_code=422, detail="vacancies must be > 0")
+
+        dept_name = payload.department.strip()
+
+        start_at = _parse_date_to_utc_start((payload.startDate or "").strip())
+        end_at = _parse_date_to_utc_start((payload.endDate or "").strip())
+
+        salary_text = (payload.salary or "").strip()
+        salary_amount: Optional[Decimal] = parse_salary_to_decimal(salary_text)
+        if salary_text and salary_amount is None:
+            raise HTTPException(status_code=422, detail="salary must contain at least one digit amount")
+
+        min_exp_display = (payload.minExperience or "").strip()
+
+        async with session.begin():
+            dept = (await session.execute(select(Department).where(Department.name == dept_name))).scalars().first()
+            if dept is None:
+                code = re.sub(r"[^A-Za-z0-9]", "", dept_name).upper()[:10] or "GEN"
+                dept = Department(name=dept_name, code=code)
+                session.add(dept)
+                await session.flush()
+
+            job = Job(
+                title=payload.jobTitle.strip(),
+                designation=(min_exp_display if min_exp_display else "Professor"),
+                department_id=dept.id,
+                status=payload.status,
+                vacancies=vacancies_n,
+                applications_count=0,
+                min_experience_years=None,
+                specialization=(payload.specialization or "").strip(),
+                qualifications=(payload.qualifications or "").strip(),
+                salary_text=salary_text or None,
+                salary_amount=salary_amount,
+                application_start_at=start_at,
+                application_end_at=end_at,
+            )
+            session.add(job)
+
+        return {"success": True, "message": "Vacancy posted to core platform database successfully!"}
+
+    except HTTPException:
+        raise
+    except SQLAlchemyError as e:
+        raise HTTPException(status_code=503, detail=f"Database error: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/candidates")
+async def get_candidates_list(session: AsyncSession = Depends(get_db)):
+    try:
+        candidates = (await session.execute(select(Candidate).order_by(Candidate.score.desc()))).scalars().all()
+        return [
+            {
+                "id": c.id,
+                "name": c.name,
+                "initials": c.initials,
+                "department": c.department,
+                "score": c.score,
+                "exp": c.exp,
+                "expYears": c.exp_years,
+                "qual": c.qual,
+                "match": c.match,
+                "research": c.research,
+                "researchCount": c.research_count,
+                "status": c.status,
+                "color": c.color,
+            }
+            for c in candidates
+        ]
+    except SQLAlchemyError as e:
+        raise HTTPException(status_code=503, detail=f"Database error: {str(e)}")
+
+
+@app.get("/api/interviews")
+async def get_interviews_matrix(session: AsyncSession = Depends(get_db)):
+    try:
+        interviews = (await session.execute(select(Interview).order_by(Interview.id))).scalars().all()
+        return [
+            {
+                "id": i.id,
+                "name": i.name,
+                "initials": i.initials,
+                "avatarBg": i.avatar_bg,
+                "panel": i.panel,
+                "dateTime": i.scheduled_at.isoformat(sep=" ") if i.scheduled_at else "",
+                "venue": i.venue,
+                "status": i.status,
+                "statusStyle": i.status_style,
+            }
+            for i in interviews
+        ]
+    except SQLAlchemyError as e:
+        raise HTTPException(status_code=503, detail=f"Database error: {str(e)}")
+
+
+@app.get("/api/evaluation")
+async def get_evaluation_screenings(session: AsyncSession = Depends(get_db)):
+    try:
+        rows_ = (await session.execute(select(EvaluationCandidate).order_by(EvaluationCandidate.final_score.desc()))).scalars().all()
+        return [
+            {
+                "id": r.id,
+                "name": r.name,
+                "initials": r.initials,
+                "aiScore": r.ai_score_text,
+                "panelScore": r.panel_score_text,
+                "recommendation": r.recommendation,
+                "finalScore": r.final_score,
+                "status": r.status,
+            }
+            for r in rows_
+        ]
+    except SQLAlchemyError as e:
+        raise HTTPException(status_code=503, detail=f"Database error: {str(e)}")
+
+
+@app.get("/api/selection")
+async def get_selection_board_candidates(session: AsyncSession = Depends(get_db)):
+    try:
+        rows_ = (await session.execute(select(SelectionCandidate).order_by(SelectionCandidate.score.desc()))).scalars().all()
+        return [
+            {
+                "id": r.id,
+                "name": r.name,
+                "initials": r.initials,
+                "type": r.type,
+                "subType": r.sub_type,
+                "score": r.score,
+                "decision": r.decision,
+            }
+            for r in rows_
+        ]
+    except SQLAlchemyError as e:
+        raise HTTPException(status_code=503, detail=f"Database error: {str(e)}")
+
+
+@app.patch("/api/selection/{id}")
+async def patch_selection_committee_decision(
+    id: int,
+    payload: SelectionDecisionPayload,
+    session: AsyncSession = Depends(get_db),
+):
+    try:
+        async with session.begin():
+            row = (await session.execute(select(SelectionCandidate).where(SelectionCandidate.id == id))).scalars().first()
+            if row is None:
+                raise HTTPException(status_code=404, detail="Selection entity target missing")
+            row.decision = payload.decision
+
+        return {"ok": True}
+    except HTTPException:
+        raise
+    except SQLAlchemyError as e:
+        raise HTTPException(status_code=503, detail=f"Database error: {str(e)}")
+
+
+@app.get("/api/offers")
+async def get_issued_offers(session: AsyncSession = Depends(get_db)):
+    try:
+        offers = (await session.execute(select(Offer).order_by(Offer.id.desc()))).scalars().all()
+        return [
+            {
+                "id": o.id,
+                "name": o.name,
+                "department": o.department,
+                "designation": o.designation,
+                "salary": o.salary_text,
+                "status": o.status,
+                "statusClass": o.status_class,
+            }
+            for o in offers
+        ]
+    except SQLAlchemyError as e:
+        raise HTTPException(status_code=503, detail=f"Database error: {str(e)}")
+
