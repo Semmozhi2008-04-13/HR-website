@@ -179,16 +179,13 @@ const Jobmanagement = () => {
           <button 
             type="button" 
             onClick={handleSaveDraft}
-            className="w-56 py-3 border border-outline rounded-lg text-gray-700 font-bold hover:bg-gray-50 transition-colors"
-          >
+            className="w-56 py-3 border border-blue-200 bg-blue-100 text-blue-900 rounded-lg font-bold hover:bg-blue-700 hover:text-white hover:border-blue-700 transition-colors duration-200 shadow-sm"          >
             Save as Draft
           </button>
           <button 
             type="submit" 
-            className="w-56 py-3 bg-primary text-white rounded-lg font-bold hover:opacity-90 transition-colors shadow-sm"
-          >
-            Publish
-          </button>
+            className="w-56 py-3 border border-blue-200 bg-blue-100 text-blue-900 rounded-lg font-bold hover:bg-blue-700 hover:text-white hover:border-blue-700 transition-colors duration-200 shadow-sm"
+          >Publish</button>
         </div>
       </form>
     </div>
