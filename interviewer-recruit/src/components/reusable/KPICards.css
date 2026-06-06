@@ -1,0 +1,157 @@
+.kpi-cards {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  background: #dfd9d9;
+  border: 1px solid #545757;
+  border-radius: 12px;
+  padding: 16px;
+  width: 100%;
+  min-width: 0; /* Vital: permits shrinking inside the grid framework */
+  box-sizing: border-box;
+  align-self: stretch; 
+}
+
+.kpi-icon-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 10px;
+  flex-shrink: 0; /* Prevents the icon container from distorting */
+}
+
+/*===================================================*/
+
+
+/*KPI CARDS FOR DASHBOARD*/
+
+.kpi-cards.assigned{
+  background-color: #d3e2f1;
+}
+.kpi-icon-container.assigned{
+  color: #3b82f6;
+}
+
+.kpi-cards.pending{
+  background-color: #fad6d9;
+}
+.kpi-icon-container.pending{
+  color: #e53e3e;
+}
+
+.kpi-cards.progress{
+  background-color: #eadbf8;
+}
+.kpi-icon-container.progress{
+  color: #6B46C1;
+}
+
+.kpi-cards.interview{
+  background-color: #fdf2cd;
+}
+.kpi-icon-container.interview{
+  color: #d97706;
+}
+
+
+/*===================================================*/
+
+
+/*KPI CARDS FOR FEEDBACK AND DECISIONS*/
+
+.kpi-cards.reviewed{
+  background-color: #d3e2f1;
+}
+.kpi-icon-container.reviewed{
+  color: #3b82f6;
+}
+
+.kpi-cards.final-decision{
+  background-color: #d3fae6;
+}
+.kpi-icon-container.final-decsion{
+  color: #5eff00;
+}
+
+.kpi-cards.pending-decision{
+  background-color: #fad6d9;
+}
+.kpi-icon-container.pending-decision{
+  color: #d11c1c;
+}
+
+
+/*====================================================*/
+
+.kpi-content-wrap {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0; /* Critical: allows children text truncation if space fails */
+  gap: 4px;
+}
+
+.kpi-text {
+  font-size: 0.85rem;
+  color: #0f172a;
+  font-weight: 700;
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  white-space: normal;  /* Allows text to naturally wrap to a new line */
+  word-break: break-word; /* Prevents long words from breaking layout boundaries */
+  line-height: 1.3;
+  font-size: clamp(0.95rem, 1.1vw, 1.25rem);
+}
+
+.kpi-title {
+  font-size: 0.85rem;
+  color: #64748b;
+  font-weight: 500;
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kpi-subtext{
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: #1a202c;
+    margin: 0;
+}
+
+/* .kpi-icon-container.blue {
+  background-color: #eef2ff;
+  color: #3b82f6;
+}
+
+.kpi-icon-container.red {
+  background-color: #fff5f5;
+  color: #e53e3e;
+}
+
+.kpi-icon-container.grey {
+  background-color: #f3e8ff;
+  color: #78767a;
+}
+
+.kpi-icon-container.orange {
+  background-color: #fef3c7;
+  color: #d97706;
+} */
+
+/* Dark Mode Overrides */
+.app.dark .kpi-card {
+  background-color: #1e1e1e;
+  border-color: #2d2d2d;
+}
+.app.dark .kpi-value {
+  color: #ffffff;
+}
+.app.dark .kpi-title {
+  color: #a0aec0;
+}
