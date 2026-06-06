@@ -1,19 +1,50 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { apiGet } from '../services/api';
 
 export default function Offer() {
-  // --- Form & Document Sync State Matrix ---
-  const [candidate] = useState({
-    name: 'Dr. Priya Subramanian',
-    qualification: 'Ph.D in AI & ML',
-    department: 'School of Computer Science & Engineering',
-    basePay: '₹57,700',
-    refNumber: 'CIT/HR/2026/047',
-    dateCreated: '22 May 2026'
-  });
+  const [searchParams] = useSearchParams();
+  const candidateId = searchParams.get('candidateId') || '3'; // Default to Priya (ID 3) if none specified
 
+  const [candidate, setCandidate] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  
   const [appointmentType, setAppointmentType] = useState('Standard Faculty');
   const [ctc, setCtc] = useState('14,40,000');
   const [joiningDate, setJoiningDate] = useState('2026-07-01'); // HTML standard date structure
+
+  useEffect(() => {
+    let isMounted = true;
+    setIsLoading(true);
+    apiGet(`/api/candidates/${candidateId}`)
+      .then((data) => {
+        if (isMounted) {
+          setCandidate(data);
+          setLoadError('');
+        }
+      })
+      .catch((err) => {
+        if (isMounted) {
+          setLoadError('Unable to load candidate details from database. Using fallback.');
+          setCandidate({
+            name: 'Dr. Priya Subramanian',
+            qualification: 'Ph.D in AI & ML',
+            department: 'School of Computer Science & Engineering',
+            basePay: '₹57,700',
+            refNumber: 'CIT/HR/2026/047',
+            dateCreated: '05 Jun 2026'
+          });
+        }
+      })
+      .finally(() => {
+        if (isMounted) setIsLoading(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [candidateId]);
 
   // Dynamic Text Conversion for Written Numbers
   const getWrittenCtc = (value) => {
@@ -33,6 +64,21 @@ export default function Offer() {
     alert('Preview PDF clicked. Integrate backend GET /api/offers/pdf?candidate=... when ready.');
   };
 
+  if (isLoading) {
+    return (
+      <div className="p-8 text-center text-gray-500 font-semibold">
+        Loading offer letter generator details...
+      </div>
+    );
+  }
+
+  if (!candidate) {
+    return (
+      <div className="p-8 text-center text-red-500 font-semibold">
+        Candidate not found.
+      </div>
+    );
+  }
 
   return (
     <div className="p-container-padding space-y-6 w-full font-sans antialiased text-on-surface">

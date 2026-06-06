@@ -1,3 +1,4 @@
+import { Toaster } from 'react-hot-toast';
 import { useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Sidebar from './components/Sidebar';
@@ -20,7 +21,8 @@ function App() {
   const closeSidebar = () => setIsSidebarOpen(false);
 
   return (
-    <Router>
+        <Router>
+      <Toaster position="top-right" toastOptions={{ duration: 4000 }} />
       {/* Main app viewport container */}
       <div className="bg-slate-50 text-gray-900 font-sans antialiased h-screen w-full flex flex-col relative overflow-hidden selection:bg-blue-100 selection:text-blue-900">
         

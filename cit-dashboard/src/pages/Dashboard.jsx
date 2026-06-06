@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { apiGet } from '../services/api';
-
+import { apiGet, apiPost } from '../services/api';
+import ScheduleInterviewModal from '../components/ScheduleInterviewModal';
+import toast from 'react-hot-toast';
 const iconByName = {
   group: 'groups',
   business: 'business',
@@ -17,24 +18,25 @@ const Dashboard = () => {
     timelineEvents: [],
   });
   const [isLoading, setIsLoading] = useState(true);
+  const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [loadError, setLoadError] = useState('');
+
+  const fetchDashboard = async () => {
+    setIsLoading(true);
+    try {
+      const data = await apiGet('/api/dashboard');
+      setDashboardData(data);
+      setLoadError('');
+    } catch (err) {
+      setLoadError('Unable to load dashboard data from database.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   useEffect(() => {
     let isMounted = true;
-    apiGet('/api/dashboard')
-      .then((data) => {
-        if (isMounted) {
-          setDashboardData(data);
-          setLoadError('');
-        }
-      })
-      .catch(() => {
-        if (isMounted) setLoadError('Unable to load dashboard data from database.');
-      })
-      .finally(() => {
-        if (isMounted) setIsLoading(false);
-      });
-
+    fetchDashboard();
     return () => {
       isMounted = false;
     };
@@ -126,10 +128,64 @@ const Dashboard = () => {
                   <span className="material-symbols-outlined text-gray-400 text-[18px]">chevron_right</span>
                 </div>
               ))}
+              </div>
             </div>
-          </div>
 
-          <div className="border rounded-2xl p-6 bg-white shadow-sm">
+            {/* Export Report Button */}
+            <button
+              onClick={async () => {
+                try {
+                  const data = await apiGet('/api/candidates/top?limit=100');
+                  const headers = Object.keys(data[0] || {});
+                  const csvRows = [
+                    headers.join(','),
+                    ...data.map(row => headers.map(h => `"${String(row[h]).replace(/"/g, '""')}"`).join(','))
+                  ];
+                  const csvContent = csvRows.join('\n');
+                  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                  const url = URL.createObjectURL(blob);
+                  const link = document.createElement('a');
+                  link.href = url;
+                  link.setAttribute('download', 'candidates_report.csv');
+                  document.body.appendChild(link);
+                  link.click();
+                  document.body.removeChild(link);
+                  URL.revokeObjectURL(url);
+                  toast.success('Report exported');
+                } catch (err) {
+                  toast.error('Failed to export report');
+                }
+              }}
+              className="w-full bg-[#28a745] text-white py-3 rounded-lg flex items-center justify-center space-x-2 font-semibold text-sm hover:bg-green-800 active:scale-[0.98] transition-all shadow-sm mb-2"
+            >
+              <span className="material-symbols-outlined">download</span>
+              <span>Export Report</span>
+            </button>
+
+            {/* Generate Offer Button */}
+            <button
+              onClick={async () => {
+                try {
+                  const payload = {
+                    candidateId: 3,
+                    position: 'Assistant Professor',
+                    salary: 1440000,
+                    joiningDate: '2026-07-01',
+                  };
+                  const res = await apiPost('/api/offers', payload);
+                  toast.success(`Offer generated with ID: ${res.offer_id}`);
+                } catch (err) {
+                  toast.error('Failed to generate offer');
+                }
+              }}
+              className="w-full bg-[#6A0DAD] text-white py-3 rounded-lg flex items-center justify-center space-x-2 font-semibold text-sm hover:bg-purple-800 active:scale-[0.98] transition-all shadow-sm mt-2"
+            >
+              <span className="material-symbols-outlined">description</span>
+              <span>Generate Offer</span>
+            </button>
+
+            <div className="border rounded-2xl p-6 bg-white shadow-sm">
+          
             <h2 className="text-lg font-bold text-gray-800 mb-6">Upcoming Timeline</h2>
             <div className="relative pl-4 space-y-6 before:content-[''] before:absolute before:left-[21px] before:top-2 before:bottom-2 before:w-[1px] before:bg-gray-200">
               {timelineEvents.map((event) => (
@@ -144,10 +200,24 @@ const Dashboard = () => {
             </div>
           </div>
 
-          <button className="w-full bg-[#0014B4] text-white py-3 rounded-lg flex items-center justify-center space-x-2 font-semibold text-sm hover:bg-blue-800 active:scale-[0.98] transition-all shadow-sm">
+          {/* Schedule Interview Modal Trigger */}
+          <button
+            onClick={() => setShowScheduleModal(true)}
+            className="w-full bg-[#0014B4] text-white py-3 rounded-lg flex items-center justify-center space-x-2 font-semibold text-sm hover:bg-blue-800 active:scale-[0.98] transition-all shadow-sm"
+          >
             <span className="material-symbols-outlined">calendar_month</span>
             <span>Schedule Interview</span>
           </button>
+          {showScheduleModal && (
+            <ScheduleInterviewModal
+                onClose={() => setShowScheduleModal(false)}
+                onSuccess={() => {
+                  setShowScheduleModal(false);
+                  toast.success('Interview scheduled successfully');
+                  fetchDashboard();
+                }}
+              />
+            )}
         </div>
       </div>
     </div>

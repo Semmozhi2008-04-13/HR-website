@@ -3,9 +3,8 @@ from __future__ import annotations
 import os
 from dotenv import load_dotenv
 
-from sqlalchemy import create_engine
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from sqlalchemy.orm import declarative_base
 
 import psycopg2
 
@@ -19,37 +18,50 @@ DB_CONFIG = {
     "password": os.getenv("DB_PASSWORD", "2008semo13"),
 }
 
+# Async PostgreSQL connection URL using asyncpg
 DATABASE_URL = (
-    f"postgresql://{DB_CONFIG['user']}:{DB_CONFIG['password']}@"
+    f"postgresql+asyncpg://{DB_CONFIG['user']}:{DB_CONFIG['password']}@"
     f"{DB_CONFIG['host']}:{DB_CONFIG['port']}/{DB_CONFIG['database']}"
 )
 
-engine = create_engine(DATABASE_URL)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+# Create async engine
+engine = create_async_engine(
+    DATABASE_URL,
+    echo=True,  # Set to False in production
+    pool_size=5,
+    max_overflow=10
+)
+
+# Create async session factory
+AsyncSessionLocal = async_sessionmaker(
+    engine,
+    class_=AsyncSession,
+    expire_on_commit=False
+)
+
 Base = declarative_base()
 
-# NOTE: main.py currently expects async SQLAlchemy (AsyncSession + async dependency).
-# To keep the project runnable without cascading async refactors right now,
-# we expose sync get_db and a compatible alias.
+# Dependency to get DB session
+async def get_db():
+    async with AsyncSessionLocal() as session:
+        try:
+            yield session
+        finally:
+            await session.close()
 
-def get_db():
-    db = SessionLocal()
+def test_connection() -> bool:
     try:
-        yield db
-    finally:
-        db.close()
-
-# Compatibility alias expected by imports.
-AsyncSessionLocal = SessionLocal
-
-
-def test_connection():
-    try:
-        conn = psycopg2.connect(**DB_CONFIG)
-        print("✅ Connected to PostgreSQL successfully!")
+        # We test using sync psycopg2
+        conn = psycopg2.connect(
+            host=DB_CONFIG["host"],
+            port=int(DB_CONFIG["port"]),
+            database=DB_CONFIG["database"],
+            user=DB_CONFIG["user"],
+            password=DB_CONFIG["password"]
+        )
+        print("Connected to PostgreSQL successfully!")
         conn.close()
         return True
     except Exception as e:
-        print(f"❌ Connection failed: {e}")
+        print(f"Connection failed: {e}")
         return False
-
