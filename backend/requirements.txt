@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 annotated-doc==0.0.4
 annotated-types==0.7.0
 anyio<4.0.0
@@ -19,3 +20,16 @@ typing_extensions==4.15.0
 uvicorn==0.24.0
 websockets==16.0
 
+=======
+Flask==3.0.3
+Flask-Cors==4.0.1
+SQLAlchemy==2.0.30
+alembic==1.13.2
+pydantic==1.10.15
+python-multipart==0.0.9
+Flask-JWT-Extended==4.6.0
+bcrypt==4.0.1
+python-dotenv==1.0.1
+marshmallow==3.21.2
+marshmallow-sqlalchemy==1.1.0
+>>>>>>> 28b0fd7bc14b2999366ee6a9e58fae59924357b0
