@@ -23,7 +23,7 @@ class Job(Base):
     vacancies = Column(Integer, default=1)
     start_date = Column(DateTime)
     deadline = Column(DateTime)
-    status = Column(Enum('draft', 'published', name='job_status'), default='draft')
+    status = Column(String, default='draft')
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
