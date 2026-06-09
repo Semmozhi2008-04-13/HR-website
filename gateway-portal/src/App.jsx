@@ -2,7 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth} from './components/contexts/AuthContext';
 import Login from './components/auth/Login.jsx'; // Adjust path to your Login.jsx
 import HRDashboard from '../../cit-dashboard/src/pages/Dashboard.jsx';
-import InterviewerDashboard from '../../interviewer-recruit/src/components/Dashboard.jsx';
+import InterviewerDashboard from '../../interview-recruit/src/components/Dashboard.jsx';
 
 import './App.css';
 
