@@ -71,7 +71,7 @@ Job ←→ Candidate (via JobApplication)
     ├→ Evaluation
     ├→ Selection
     └→ OfferOnboarding
-        └→ Interview
+
 ```
 
 ---
