@@ -5,7 +5,7 @@ from auth import verify_user
 
 app = Flask(__name__)
 CORS(app)
-# CORS(app, origins=["http://localhost:5000"])
+CORS(app, origins=["http://localhost:5000"])
 
 def get_db_connection():
     return psycopg2.connect(

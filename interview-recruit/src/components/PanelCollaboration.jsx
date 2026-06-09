@@ -7,7 +7,7 @@ const PanelCollaboration = () => {
     const navigate = useNavigate();
 
     const candidate = state?.candidate || {
-        candidate: "Dr. Placeholder Name",
+        candidate: "Placeholder Name",
         id: "000",
         dept: "Department",
         time: "00:00 - 00:00"
