@@ -9,6 +9,10 @@ from sqlalchemy import select, func, delete
 from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime, timedelta, date
+import os
+from fastapi import BackgroundTasks
+from services.pdf_generator import create_pdf
+from services.email_service import send_offer
 
 from backend.database.connection import get_db, engine, Base, AsyncSessionLocal
 from backend.models import (
@@ -1330,3 +1334,81 @@ async def mark_notification_read(notification_id: int, session: AsyncSession = D
     
     return {"success": True}
 
+@app.post("/api/offers/send/{candidate_id}")
+async def send_offer_letter(
+    candidate_id:int,
+    background_tasks: BackgroundTasks,
+    session: AsyncSession = Depends(get_db)
+):
+
+    candidate = await session.get(
+        Candidate,
+        candidate_id
+    )
+
+
+    if not candidate:
+        raise HTTPException(
+            status_code=404,
+            detail="Candidate not found"
+        )
+
+
+    department = "School of Computer Science & Engineering"
+
+
+    # load template
+
+    with open(
+        "templates/offer.html",
+        "r"
+    ) as file:
+
+        html=file.read()
+
+
+
+    # replace values
+
+    html = html.replace(
+        "{{name}}",
+        f"{candidate.first_name} {candidate.last_name}"
+    )
+
+
+    html = html.replace(
+        "{{role}}",
+        "Assistant Professor"
+    )
+
+
+    html = html.replace(
+        "{{department}}",
+        department
+    )
+
+
+    pdf_file = create_pdf(html)
+
+
+    # send email in background
+
+    background_tasks.add_task(
+        send_offer,
+        candidate.email,
+        pdf_file
+    )
+
+
+    # update status
+
+    candidate.application_status="offer_sent"
+
+    await session.commit()
+
+
+
+    return {
+        "message":"Offer generated and email sent",
+        "candidate":candidate.email
+    }
